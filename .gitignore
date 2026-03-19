@@ -1,0 +1,31 @@
+# secrets
+.env
+.env.local
+.env.*.local
+
+# runtime data
+data/
+
+# logs
+*.log
+
+# binaries
+faceit-telegram-bot
+faceit-bot
+bot-bin
+*.exe
+*.out
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# temp / cache
+tmp/
+temp/
+*.tmp
+
+# debug/test artifacts
+tools/*.json
+response_*.json
