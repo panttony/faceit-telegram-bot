@@ -19,7 +19,14 @@
   - глобальный лимит игроков,
   - cooldown на команды,
   - ограничение на размер фото.
+  
+ ![track tried](./media/tried.jpg)
+ 
+ ![stats strogo](./media/strogo.jpg)
 
+ ![setphoto](./media/setphoto.jpg)
+ 
+ ![strogoupd](./media/strogoupd.jpg)
 
 ## Команды
 
