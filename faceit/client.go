@@ -45,6 +45,7 @@ type PlayerStats struct {
 	KDRatio      float64
 	WinRate      float64
 	MatchesCount int
+	TotalMatches int
 	AvgKills     float64
 	ADR          float64
 	HeadshotsPct float64
@@ -286,6 +287,21 @@ func (c *Client) GetPlayerStats(ctx context.Context, playerID, gameID string) (*
 	details, err := c.GetPlayerDetails(ctx, playerID)
 	if err != nil {
 		return nil, err
+	}
+
+	lifetimeURL := fmt.Sprintf("%s/players/%s/stats/%s", c.baseURL, playerID, gameID)
+	lifetimeBody, err := c.doRequest(ctx, "GET", lifetimeURL, nil, "")
+	if err == nil {
+		var lifetimeResp struct {
+			Lifetime map[string]any `json:"lifetime"`
+		}
+
+		if json.Unmarshal(lifetimeBody, &lifetimeResp) == nil {
+			details.TotalMatches = toInt(lifetimeResp.Lifetime["Total Matches"])
+			if details.TotalMatches == 0 {
+				details.TotalMatches = toInt(lifetimeResp.Lifetime["Matches"])
+			}
+		}
 	}
 
 	rawURL := fmt.Sprintf("%s/players/%s/games/%s/stats?limit=30", c.baseURL, url.PathEscape(playerID), url.PathEscape(gameID))

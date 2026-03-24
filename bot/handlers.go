@@ -436,16 +436,17 @@ func (h *BotHandler) handleStats(message *telegram.Message) {
 		return
 	}
 	text := strings.Join([]string{
-		fmt.Sprintf("Player: %s", stats.Nickname),
-		fmt.Sprintf("Profile: %s", stats.ProfileURL),
-		fmt.Sprintf("ELO: %d", stats.Elo),
-		fmt.Sprintf("Level: %d", stats.Level),
-		fmt.Sprintf("Matches: %d", stats.MatchesCount),
-		fmt.Sprintf("K/D: %.2f", stats.KDRatio),
-		fmt.Sprintf("Winrate: %.1f%%", stats.WinRate),
-		fmt.Sprintf("AVG kills: %.1f", stats.AvgKills),
-		fmt.Sprintf("ADR: %.1f", stats.ADR),
-		fmt.Sprintf("Headshots: %.1f%%", stats.HeadshotsPct),
+		fmt.Sprintf("- Player: %s", stats.Nickname),
+		fmt.Sprintf("- Profile: %s", stats.ProfileURL),
+		fmt.Sprintf("- ELO: %d", stats.Elo),
+		fmt.Sprintf("- Level: %d", stats.Level),
+		fmt.Sprintf("- Matches: %d", stats.TotalMatches),
+		"Stats for the last 30 matches:",
+		fmt.Sprintf("- K/D: %.2f", stats.KDRatio),
+		fmt.Sprintf("- Winrate: %.1f%%", stats.WinRate),
+		fmt.Sprintf("- AVG kills: %.1f", stats.AvgKills),
+		fmt.Sprintf("- ADR: %.1f", stats.ADR),
+		fmt.Sprintf("- Headshots: %.1f%%", stats.HeadshotsPct),
 	}, "\n")
 	h.reply(message.Chat.ID, text)
 }
