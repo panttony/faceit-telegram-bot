@@ -118,7 +118,7 @@ func (h *BotHandler) handleStart(message *telegram.Message) {
 		"Привет. Я отслеживаю последние FACEIT-матчи и присылаю карточку со статистикой.",
 		"",
 		"Основные команды:",
-		"/track <FACEIT link или nickname> - начать отслеживание игрока (максимум 15 игроков на чат)",
+		"/track <FACEIT link или nickname> - начать отслеживание игрока (максимум 10 игроков на чат)",
 		"/list - список отслеживаемых игроков в этом чате",
 		"/setphoto <номер из /list | FACEIT link | player_id | nickname> - привязать или заменить фото игрока",
 		"/removephoto <номер из /list | FACEIT link | player_id | nickname> - удалить сохраненное фото",
