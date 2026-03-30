@@ -63,6 +63,16 @@ type File struct {
 	FilePath string `json:"file_path"`
 }
 
+type InputMediaPhoto struct {
+	Type    string `json:"type"`
+	Media   string `json:"media"`
+	Caption string `json:"caption,omitempty"`
+}
+
+type MediaGroupMessage struct {
+	MessageID int `json:"message_id"`
+}
+
 func NewBot(token string) (*Bot, error) {
 	b := &Bot{
 		Token:      token,
@@ -184,6 +194,88 @@ func (b *Bot) SendPhoto(ctx context.Context, chatID int64, filePath, caption str
 	}
 	if !decoded.OK {
 		return fmt.Errorf("telegram sendPhoto failed: %s", decoded.Description)
+	}
+	return nil
+}
+
+func (b *Bot) SendMediaGroup(ctx context.Context, chatID int64, filePaths []string, caption string) error {
+	if len(filePaths) == 0 {
+		return nil
+	}
+
+	for start := 0; start < len(filePaths); start += 10 {
+		end := start + 10
+		if end > len(filePaths) {
+			end = len(filePaths)
+		}
+		if err := b.sendMediaGroupChunk(ctx, chatID, filePaths[start:end], caption, start == 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Bot) sendMediaGroupChunk(ctx context.Context, chatID int64, filePaths []string, caption string, includeCaption bool) error {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	if err := writer.WriteField("chat_id", fmt.Sprintf("%d", chatID)); err != nil {
+		return err
+	}
+
+	media := make([]InputMediaPhoto, 0, len(filePaths))
+	for i, filePath := range filePaths {
+		fieldName := fmt.Sprintf("attach%d", i)
+		item := InputMediaPhoto{Type: "photo", Media: "attach://" + fieldName}
+		if i == 0 && includeCaption && caption != "" {
+			item.Caption = caption
+		}
+		media = append(media, item)
+
+		part, err := writer.CreateFormFile(fieldName, filepath.Base(filePath))
+		if err != nil {
+			return err
+		}
+		file, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		if _, err := ioCopy(part, file); err != nil {
+			file.Close()
+			return err
+		}
+		file.Close()
+	}
+
+	mediaJSON, err := json.Marshal(media)
+	if err != nil {
+		return err
+	}
+	if err := writer.WriteField("media", string(mediaJSON)); err != nil {
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.apiBaseURL+"/sendMediaGroup", body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var decoded apiResponse[[]MediaGroupMessage]
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return err
+	}
+	if !decoded.OK {
+		return fmt.Errorf("telegram sendMediaGroup failed: %s", decoded.Description)
 	}
 	return nil
 }

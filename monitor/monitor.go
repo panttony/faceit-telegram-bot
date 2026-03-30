@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,12 @@ type MatchNotification struct {
 	OldElo       int
 	NewElo       int
 	EloChange    int
+}
+
+type renderedNotification struct {
+	Notification *MatchNotification
+	RenderPath   string
+	MatchTime    time.Time
 }
 
 type Monitor struct {
@@ -74,6 +81,9 @@ func (m *Monitor) checkAllPlayers() {
 		return
 	}
 	log.Printf("checking %d tracked players", len(players))
+
+	notificationsByChat := make(map[int64][]*MatchNotification)
+
 	for _, player := range players {
 		notification, err := m.checkNewMatch(player)
 		if err != nil {
@@ -83,8 +93,21 @@ func (m *Monitor) checkAllPlayers() {
 		if notification == nil {
 			continue
 		}
-		if err := m.sendMatchNotification(notification); err != nil {
-			log.Printf("send notification for %s failed: %v", player.PlayerNickname, err)
+		notificationsByChat[notification.ChatID] = append(notificationsByChat[notification.ChatID], notification)
+	}
+
+	for chatID, notifications := range notificationsByChat {
+		sort.SliceStable(notifications, func(i, j int) bool {
+			left := nonZero(notifications[i].MatchDetails.FinishedAt, notifications[i].MatchDetails.StartedAt)
+			right := nonZero(notifications[j].MatchDetails.FinishedAt, notifications[j].MatchDetails.StartedAt)
+			if left == right {
+				return strings.ToLower(notifications[i].PlayerName) < strings.ToLower(notifications[j].PlayerName)
+			}
+			return left < right
+		})
+
+		if err := m.sendMatchNotifications(chatID, notifications); err != nil {
+			log.Printf("send batched notifications for chat %d failed: %v", chatID, err)
 		}
 	}
 }
@@ -181,12 +204,48 @@ func (m *Monitor) checkNewMatch(player *storage.TrackedPlayer) (*MatchNotificati
 	return notification, nil
 }
 
-func (m *Monitor) sendMatchNotification(n *MatchNotification) error {
+func (m *Monitor) sendMatchNotifications(chatID int64, notifications []*MatchNotification) error {
+	if len(notifications) == 0 {
+		return nil
+	}
+
+	rendered := make([]*renderedNotification, 0, len(notifications))
+	cleanupPaths := make([]string, 0, len(notifications))
+	defer func() {
+		for _, p := range cleanupPaths {
+			cleanupTempRender(p)
+		}
+	}()
+
+	for _, n := range notifications {
+		item, err := m.renderNotification(n)
+		if err != nil {
+			return err
+		}
+		rendered = append(rendered, item)
+		cleanupPaths = append(cleanupPaths, item.RenderPath)
+	}
+
+	caption := m.buildBatchNotificationText(rendered)
+	paths := make([]string, 0, len(rendered))
+	for _, item := range rendered {
+		paths = append(paths, item.RenderPath)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if len(paths) == 1 {
+		return m.bot.SendPhoto(ctx, chatID, paths[0], caption)
+	}
+	return m.bot.SendMediaGroup(ctx, chatID, paths, caption)
+}
+
+func (m *Monitor) renderNotification(n *MatchNotification) (*renderedNotification, error) {
 	_, renderPath, err := m.storage.BuildRenderedImagePath(n.ScopeID, n.PlayerID, n.MatchStats.MatchID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer cleanupTempRender(renderPath)
 
 	matchTime := time.Unix(nonZero(n.MatchDetails.FinishedAt, n.MatchDetails.StartedAt), 0).In(m.cfg.Timezone)
 	photoPath := m.storage.AbsolutePath(n.PlayerPhoto)
@@ -210,30 +269,25 @@ func (m *Monitor) sendMatchNotification(n *MatchNotification) error {
 		PhotoURL:        n.PlayerAvatar,
 		OutputPath:      renderPath,
 	}); err != nil {
-		return fmt.Errorf("render card: %w", err)
+		cleanupTempRender(renderPath)
+		return nil, fmt.Errorf("render card: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-	if err := m.bot.SendPhoto(ctx, n.ChatID, renderPath, m.buildNotificationText(n, matchTime)); err != nil {
-		return fmt.Errorf("send photo: %w", err)
-	}
-	return nil
+	return &renderedNotification{Notification: n, RenderPath: renderPath, MatchTime: matchTime}, nil
 }
 
-func (m *Monitor) buildNotificationText(n *MatchNotification, matchTime time.Time) string {
+func (m *Monitor) buildBatchNotificationText(items []*renderedNotification) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s | %s\n", n.PlayerName, matchTime.Format("02.01.2006 15:04"))
-	if n.MatchDetails.FaceitURL != "" {
-		fmt.Fprintf(&b, "FACEIT Room: %s\n", n.MatchDetails.FaceitURL)
+	for i, item := range items {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "%d) %s | %s\n", i+1, item.Notification.PlayerName, item.MatchTime.Format("02.01.2006 15:04"))
+		if item.Notification.MatchDetails.FaceitURL != "" {
+			fmt.Fprintf(&b, "FACEIT Room: %s\n", item.Notification.MatchDetails.FaceitURL)
+		}
 	}
-	//в случае получения Downloads API токена
-	/*if demoURL := firstNonEmpty(n.MatchDetails.DemoURLs); demoURL != "" {
-		fmt.Fprintf(&b, "Demo URL: %s", demoURL)
-	} else {
-		b.WriteString("Demo URL: не удалось получить ссылку на демо")
-	}*/
-	return b.String()
+	return strings.TrimSpace(b.String())
 }
 
 func formatScoreForPlayer(match faceit.MatchInfo, playerID string) string {
@@ -245,15 +299,6 @@ func cleanupTempRender(path string) {
 		log.Printf("cleanup render %s failed: %v", path, err)
 	}
 }
-
-/*func firstNonEmpty(values []string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}*/
 
 func nonZero(values ...int64) int64 {
 	for _, value := range values {
